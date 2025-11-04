@@ -10,9 +10,9 @@ Este repositorio incluye workflows automatizados de GitHub Actions para build y 
 |--------|--------|-----------|
 | Push a `main` o `develop` | Build web | Artifacts web guardados |
 | Pull Request a `main` | Build web | Validación del código |
-| Tag `*-debug` | Build APK debug | GitHub Release (draft) + APK |
-| Tag `*-release` | Build AAB release | GitHub Release (público) + AAB |
-| Tag `*-beta` | Build AAB beta | GitHub Release (pre-release) + AAB |
+| Tag `*-debug` | Build APK debug | GitHub Release (draft) + `app-debug.VERSION.apk` |
+| Tag `*-release` | Build AAB release | GitHub Release (público) + `app-release.VERSION.aab` |
+| Tag `*-beta` | Build AAB beta | GitHub Release (pre-release) + `app-beta.VERSION.aab` |
 
 ### 🏗️ Jobs
 
@@ -71,15 +71,15 @@ Ve a **Settings > Secrets and variables > Actions** en tu repositorio y configur
 ### 2. 🏷️ Crear Releases
 
 ```bash
-# Debug APK (Draft Release)
+# Debug APK (Draft Release) → app-debug.v1.0.0.apk
 git tag v1.0.0-debug
 git push origin v1.0.0-debug
 
-# Release AAB (Public Release) 
+# Release AAB (Public Release) → app-release.v1.0.0.aab
 git tag v1.0.0-release
 git push origin v1.0.0-release
 
-# Beta AAB (Pre-release)
+# Beta AAB (Pre-release) → app-beta.v1.0.0.aab
 git tag v1.0.0-beta
 git push origin v1.0.0-beta
 ```

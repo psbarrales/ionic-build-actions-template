@@ -108,15 +108,15 @@ echo "   - ANDROID_KEY_PASSWORD"
 
 echo ""
 print_status "info" "🏷️ Tipos de tags soportados:"
-echo "   - *-debug: Genera APK debug"
-echo "   - *-release: Genera AAB release"
-echo "   - *-beta: Genera AAB beta (draft)"
+echo "   - *-debug: Genera APK debug (app-debug.VERSION.apk)"
+echo "   - *-release: Genera AAB release (app-release.VERSION.aab)"
+echo "   - *-beta: Genera AAB beta (app-beta.VERSION.aab)"
 
 echo ""
-print_status "info" "📋 Ejemplos de tags:"
-echo "   git tag v1.0.0-debug && git push origin v1.0.0-debug"
-echo "   git tag v1.0.0-release && git push origin v1.0.0-release"
-echo "   git tag v1.0.0-beta && git push origin v1.0.0-beta"
+print_status "info" "📋 Ejemplos de tags y archivos generados:"
+echo "   git tag v1.0.0-debug → app-debug.v1.0.0.apk"
+echo "   git tag v2.1.3-release → app-release.v2.1.3.aab"
+echo "   git tag v1.5.0-beta → app-beta.v1.5.0.aab"
 
 # Verificar si hay commits pendientes
 if [ -n "$(git status --porcelain)" ]; then
