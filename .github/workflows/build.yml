@@ -12,7 +12,7 @@ on:
 
 env:
   NODE_VERSION: '20'
-  JAVA_VERSION: '17'
+  JAVA_VERSION: '21'  # Cambiado de 17 a 21
 
 jobs:
   # Job obligatorio: Build web en todos los push
@@ -60,7 +60,13 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: ${{ env.JAVA_VERSION }}
+          java-version: ${{ env.JAVA_VERSION }}  # Ahora usará Java 21
+
+      - name: Verify Java version
+        run: |
+          java -version
+          javac -version
+          echo "JAVA_HOME: $JAVA_HOME"
 
       - name: Setup Ruby for Fastlane
         uses: ruby/setup-ruby@v1
@@ -84,6 +90,9 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          build-tools: 34.0.0
 
       - name: Decode and setup keystore
         if: contains(github.ref, '-release') || contains(github.ref, '-beta')
@@ -98,6 +107,12 @@ jobs:
         run: |
           npx cap sync android
           npx cap copy android
+
+      - name: Verify Gradle configuration
+        run: |
+          cd android
+          ./gradlew --version
+          cat app/build.gradle | grep -A 5 "compileOptions\|compileSdkVersion\|targetSdkVersion"
 
       - name: Build Debug APK
         if: contains(github.ref, '-debug')
