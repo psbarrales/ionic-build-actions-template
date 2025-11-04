@@ -1,0 +1,13 @@
+# Fastlane
+*.cer
+*.mobileprovision
+*.p12
+*.key
+*.json
+report.xml
+test_output/
+builds/
+
+# Google Play Console Service Account
+google-play-service-account.json
+play-store-service-account.json

@@ -1,0 +1,175 @@
+# This file contains the fastlane.tools configuration
+# You can find the documentation at https://docs.fastlane.tools
+#
+# For a list of all available actions, check out
+#
+#     https://docs.fastlane.tools/actions
+#
+# For a list of all available plugins, check out
+#
+#     https://docs.fastlane.tools/plugins/available-plugins
+#
+
+# Uncomment the line if you want fastlane to automatically update itself
+# update_fastlane
+
+default_platform(:android)
+
+platform :android do
+  desc "Build Debug APK"
+  lane :build_debug do
+    # Build the web app first
+    sh("cd .. && npm run build")
+    
+    # Sync Capacitor with native project
+    sh("cd .. && npx cap sync android")
+    
+    # Copy to native project (redundant after sync, but ensures latest build)
+    sh("cd .. && npx cap copy android")
+    
+    # Build debug APK
+    gradle(
+      task: "assembleDebug",
+      project_dir: "android/"
+    )
+    
+    # Copy APK to a more accessible location
+    sh("mkdir -p ../builds")
+    sh("cp ../android/app/build/outputs/apk/debug/app-debug.apk ../builds/#{Time.now.strftime('%Y%m%d_%H%M%S')}_debug.apk")
+    
+    UI.success("Debug APK built successfully! 🎉")
+  end
+
+  desc "Build Release APK"
+  lane :build_release do
+    # Build the web app first
+    sh("cd .. && npm run build")
+    
+    # Sync Capacitor with native project
+    sh("cd .. && npx cap sync android")
+    
+    # Copy to native project (redundant after sync, but ensures latest build)
+    sh("cd .. && npx cap copy android")
+    
+    # Build release APK
+    gradle(
+      task: "assembleRelease",
+      project_dir: "android/"
+    )
+    
+        # Copy APK to a more accessible location
+        sh("mkdir -p ../builds")
+        sh("cp ../android/app/build/outputs/apk/release/app-release.apk ../builds/#{Time.now.strftime('%Y%m%d_%H%M%S')}_release.apk")
+        
+        UI.success("Release APK built successfully! 🎉")
+  end
+
+  desc "Build Release AAB (Android App Bundle)"
+  lane :build_aab do
+    # Build the web app first
+    sh("cd .. && npm run build")
+    
+    # Sync Capacitor with native project
+    sh("cd .. && npx cap sync android")
+    
+    # Copy to native project (redundant after sync, but ensures latest build)
+    sh("cd .. && npx cap copy android")
+    
+    # Build release AAB
+    gradle(
+      task: "bundleRelease",
+      project_dir: "android/"
+    )
+    
+    # Copy AAB to a more accessible location
+    sh("mkdir -p ../builds")
+    sh("cp ../android/app/build/outputs/bundle/release/app-release.aab ../builds/#{Time.now.strftime('%Y%m%d_%H%M%S')}_release.aab")
+    
+    UI.success("Release AAB built successfully! 🎉")
+  end
+
+  desc "Upload to Google Play Store"
+  lane :upload_to_store do |options|
+    # Build AAB first
+    build_aab
+    
+    # Default track is 'draft', but can be overridden
+    track = options[:track] || 'draft'
+    
+    UI.message("Attempting to upload to track: #{track}")
+    
+    begin
+      # Try to upload to the specified track
+      supply(
+        track: track,
+        aab: "android/app/build/outputs/bundle/release/app-release.aab",
+        skip_upload_apk: true,
+        skip_upload_metadata: true,
+        skip_upload_changelogs: true,
+        skip_upload_images: true,
+        skip_upload_screenshots: true
+      )
+      
+      UI.success("Successfully uploaded to #{track} track! 🚀")
+      
+    rescue => exception
+      UI.error("Failed to upload to #{track} track: #{exception.message}")
+      
+      # If the specified track fails and it's not 'draft', try draft as fallback
+      if track != 'draft'
+        UI.message("Falling back to draft track...")
+        
+        begin
+          supply(
+            track: 'draft',
+            aab: "android/app/build/outputs/bundle/release/app-release.aab",
+            skip_upload_apk: true,
+            skip_upload_metadata: true,
+            skip_upload_changelogs: true,
+            skip_upload_images: true,
+            skip_upload_screenshots: true
+          )
+          
+          UI.success("Successfully uploaded to draft track as fallback! 🚀")
+          
+        rescue => fallback_exception
+          UI.error("Failed to upload even to draft track: #{fallback_exception.message}")
+          UI.crash!("Upload failed completely. Please check your configuration and try again.")
+        end
+      else
+        UI.crash!("Upload to draft track failed: #{exception.message}")
+      end
+    end
+  end
+
+  desc "Upload to Internal Testing"
+  lane :upload_internal do
+    upload_to_store(track: 'internal')
+  end
+
+  desc "Upload to Alpha Testing"
+  lane :upload_alpha do
+    upload_to_store(track: 'alpha')
+  end
+
+  desc "Upload to Beta Testing"
+  lane :upload_beta do
+    upload_to_store(track: 'beta')
+  end
+
+  desc "Upload to Production"
+  lane :upload_production do
+    upload_to_store(track: 'production')
+  end
+
+  desc "Complete workflow: Build and upload to specified track"
+  lane :deploy do |options|
+    track = options[:track] || 'draft'
+    UI.message("Starting complete deployment workflow to #{track} track...")
+    
+    # Build and upload
+    upload_to_store(track: track)
+    
+    UI.success("Deployment completed successfully! 🎉")
+  end
+end

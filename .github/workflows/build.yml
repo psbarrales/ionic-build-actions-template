@@ -1,0 +1,227 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags:
+      - '*-debug'
+      - '*-release' 
+      - '*-beta'
+  pull_request:
+    branches: [ main ]
+
+env:
+  NODE_VERSION: '20'
+  JAVA_VERSION: '17'
+
+jobs:
+  # Job obligatorio: Build web en todos los push
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web application
+        run: npm run build
+
+      - name: Upload web build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: dist/
+          retention-days: 7
+
+  # Job condicional: Build APK/AAB solo en tags
+  build-android:
+    runs-on: ubuntu-latest
+    needs: build-web
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Setup Ruby for Fastlane
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download web build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: dist/
+
+      - name: Install Fastlane
+        run: |
+          gem install fastlane
+          fastlane --version
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Decode and setup keystore
+        if: contains(github.ref, '-release') || contains(github.ref, '-beta')
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release-key.jks
+          echo "ANDROID_KEYSTORE_PATH=release-key.jks" >> $GITHUB_ENV
+          echo "ANDROID_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
+          echo "ANDROID_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}" >> $GITHUB_ENV
+          echo "ANDROID_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}" >> $GITHUB_ENV
+
+      - name: Sync Capacitor
+        run: |
+          npx cap sync android
+          npx cap copy android
+
+      - name: Build Debug APK
+        if: contains(github.ref, '-debug')
+        run: |
+          cd fastlane
+          fastlane android build_debug
+
+      - name: Build Release AAB
+        if: contains(github.ref, '-release')
+        run: |
+          cd fastlane
+          fastlane android build_aab
+
+      - name: Build Beta AAB
+        if: contains(github.ref, '-beta')
+        run: |
+          cd fastlane
+          fastlane android build_aab
+
+      - name: Get tag name
+        id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Prepare artifacts
+        id: artifacts
+        run: |
+          mkdir -p release-artifacts
+          
+          if [[ "${{ steps.tag.outputs.tag }}" == *"-debug"* ]]; then
+            # Para debug, buscar el APK más reciente
+            APK_FILE=$(find builds/ -name "*debug.apk" -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
+            if [ -f "$APK_FILE" ]; then
+              cp "$APK_FILE" "release-artifacts/app-debug.apk"
+              echo "artifact_path=release-artifacts/app-debug.apk" >> $GITHUB_OUTPUT
+              echo "artifact_name=app-debug.apk" >> $GITHUB_OUTPUT
+              echo "content_type=application/vnd.android.package-archive" >> $GITHUB_OUTPUT
+            fi
+          elif [[ "${{ steps.tag.outputs.tag }}" == *"-release"* ]] || [[ "${{ steps.tag.outputs.tag }}" == *"-beta"* ]]; then
+            # Para release/beta, buscar el AAB más reciente
+            AAB_FILE=$(find builds/ -name "*.aab" -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -d' ' -f2-)
+            if [ -f "$AAB_FILE" ]; then
+              if [[ "${{ steps.tag.outputs.tag }}" == *"-release"* ]]; then
+                cp "$AAB_FILE" "release-artifacts/app-release.aab"
+                echo "artifact_path=release-artifacts/app-release.aab" >> $GITHUB_OUTPUT
+                echo "artifact_name=app-release.aab" >> $GITHUB_OUTPUT
+              else
+                cp "$AAB_FILE" "release-artifacts/app-beta.aab"
+                echo "artifact_path=release-artifacts/app-beta.aab" >> $GITHUB_OUTPUT
+                echo "artifact_name=app-beta.aab" >> $GITHUB_OUTPUT
+              fi
+              echo "content_type=application/x-authorware-bin" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          release_name: Release ${{ steps.tag.outputs.tag }}
+          body: |
+            ## 📱 Build Information
+            
+            **Tag:** `${{ steps.tag.outputs.tag }}`
+            **Build Type:** ${{ contains(github.ref, '-debug') && 'Debug APK' || contains(github.ref, '-release') && 'Release AAB' || 'Beta AAB' }}
+            **Build Date:** ${{ github.event.head_commit.timestamp }}
+            **Commit:** ${{ github.sha }}
+            
+            ### 🚀 Generated Files
+            - ${{ steps.artifacts.outputs.artifact_name }}
+            
+            ### 📋 Build Details
+            - **Node.js:** ${{ env.NODE_VERSION }}
+            - **Java:** ${{ env.JAVA_VERSION }}
+            - **Capacitor:** Latest
+            - **Fastlane:** Latest
+            
+            ---
+            *Generated automatically by GitHub Actions*
+          draft: ${{ contains(github.ref, '-debug') }}
+          prerelease: ${{ contains(github.ref, '-beta') }}
+
+      - name: Upload Release Asset
+        if: steps.artifacts.outputs.artifact_path
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.artifacts.outputs.artifact_path }}
+          asset_name: ${{ steps.artifacts.outputs.artifact_name }}
+          asset_content_type: ${{ steps.artifacts.outputs.content_type }}
+
+      - name: Upload build artifacts to workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-build-${{ steps.tag.outputs.tag }}
+          path: builds/
+          retention-days: 30
+
+  # Job de limpieza y notificación
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: [build-web, build-mobile]
+    if: always()
+    steps:
+      - name: Build Summary
+        run: |
+          echo "## 🏗️ Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Jobs Status:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Web Build:** ${{ needs.build-web.result }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "- **Mobile Build:** ${{ needs.build-mobile.result }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Tag:** ${GITHUB_REF#refs/tags/}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Mobile Build:** Skipped (no tag)" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📊 Build Information:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
